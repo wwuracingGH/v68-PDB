@@ -1,0 +1,7 @@
+*.elf
+a.elf
+*.o
+*.map
+.settings/
+.vscode/
+build/
