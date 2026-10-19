@@ -20,6 +20,12 @@
 #include "queue.h"
 #include "semphr.h"
 
+void CAN_rxTask(void* params);
+void Channel_Control_Task(void* params);
+void LV_Task(void* params);
+void Logging_Task(void* params);
+
+
 void main(){
     
 }
