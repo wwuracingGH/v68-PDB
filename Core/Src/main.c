@@ -1,15 +1,17 @@
 /**********************************************************************************
- * Viking v68 PDB main.c
+ * Project: Viking V68 PDB
  * 
- * Jackson Newman
- * 10/14/26
+ * main.c
+ *
+ * Author:  WWU FSAE 
+ *          Jackson Newman
  * 
- * Version: 0.1
- * 
+ * Last Uptdated: 11/6/26
+ *
+ * Version: 0.1 v68
+ *
  * Function:
- *      ...
  **********************************************************************************/
-
 #include <stdint.h>
 #include "stm32h5xx.h"
 
