@@ -15,7 +15,13 @@
 #ifndef ADC_DMA_H
 #define ADC_DMA_H
 
-#define ADC_SMP 0b111
+#define ADC_SMP 0b100           /* 47.5 cycles, see timing table in adc_dma.c */
+
+/* Hardware oversampling: ADC does ADC_OVS_RATIO back-to-back conversions per channel and
+ * hands back one result. OVSR encoding: 0=2x 1=4x 2=8x 3=16x ... Shift keeps result at 12-bit:
+ * 16x sum is 16 bits, >>4 = average, so adc_read() is still 0-4095 */
+#define ADC_OVSR_VAL 3U         /* 16x */
+#define ADC_OVSS_VAL 4U         /* right shift 4 */
 #define ADC_NUM_CH 11U
 
 /* ADC1 input channel numbers (ADC1_INPx), from the PDB pin concept .ioc */

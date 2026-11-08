@@ -5,3 +5,7 @@ a.elf
 .settings/
 .vscode/
 build/
+
+# CubeMX-generated project: only the .ioc is tracked
+MX/*
+!MX/*.ioc

@@ -15,12 +15,25 @@
 #include "stm32h533xx.h"
 #include "FreeRTOS.h"
 
-#define ADC_VREG_DELAY (SYS_CLK_HZ / 1000000UL * 20UL)  /* Must delay after waking from deep power-down 20us */
+#include "delay.h"
 
-/* Simple Delay Function (Notice volatile) */
-static void delay_cycles(uint32_t n){
-    for (volatile uint32_t i = 0; i < n; i++);
-}
+#define ADC_VREG_DELAY_US 20UL  /* Must delay after waking from deep power-down 20us */
+#define ADC1_GPDMA_REQ    0U    /* GPDMA1 request line for ADC1 (RM0481 GPDMA1 requests table) */
+
+/* Scan order: index = rank-1 = slot in adc_buf. Single source of truth for SQR + adc_read */
+static const uint8_t adc_rank[ADC_NUM_CH] = {
+    ADC_CH1_CUR, ADC_CH2_CUR, ADC_CH3_CUR, ADC_CH4_CUR,
+    ADC_CH5_CUR, ADC_CH6_CUR, ADC_CH7_CUR, ADC_CH8_CUR,
+    ADC_BUS_CUR, ADC_BUS_VOLT, ADC_CHARGE_VOLT
+};
+
+/* DMA writes here, newest scan always present (circular) */
+static volatile uint16_t adc_buf[ADC_NUM_CH];
+
+/* GPDMA has no circular bit: one linked-list node that points at itself reloads
+ * block size + dest address each time the block finishes. Node layout follows CLLR flags
+ * (in register order): CBR1, CDAR, CLLR */
+static uint32_t adc_ll_node[3] __attribute__((aligned(4)));
 
 /**********************************************************************************
  * adc_init
@@ -64,7 +77,7 @@ void adc_init() {
      * Wait 20us to wake */
     ADC1->CR &= ~ADC_CR_DEEPPWD;
     ADC1->CR |= ADC_CR_ADVREGEN_Msk;
-    delay_cycles(ADC_VREG_DELAY);
+    delay_us(ADC_VREG_DELAY_US);
 
     /* Calibrate the ADC for single ended inputs (0)
      * Must disable ADC
@@ -95,19 +108,26 @@ void adc_init() {
                             | ADC_CFGR_OVRMOD;   /* overwrite (1) */
 
 
-    /* There are 4 SQR Sequence regular registers each has 4 channels it can control */
-    ADC1->SQR1 = (((ADC_NUM_CH - 1)) << ADC_SQR1_L_Pos)                /* 11 Channels so 11U-1 value counts from 0*/
-               | (10U << ADC_SQR1_SQ1_Pos)              /* rank 1:  PC0 CH1_CUR */
-               | (11U << ADC_SQR1_SQ2_Pos)              /* rank 2:  PC1 CH2_CUR */
-               | (12U << ADC_SQR1_SQ3_Pos)              /* rank 3:  PC2 CH3_CUR */
-               | (13U << ADC_SQR1_SQ4_Pos);             /* rank 4:  PC3 CH4_CUR */
-    ADC1->SQR2 = ( 0U << ADC_SQR2_SQ5_Pos)              /* rank 5:  PA0 CH5_CUR */
-               | ( 1U << ADC_SQR2_SQ6_Pos)              /* rank 6:  PA1 CH6_CUR */
-               | (14U << ADC_SQR2_SQ7_Pos)              /* rank 7:  PA2 CH7_CUR */
-               | (15U << ADC_SQR2_SQ8_Pos)              /* rank 8:  PA3 CH8_CUR */
-               | (18U << ADC_SQR2_SQ9_Pos);             /* rank 9:  PA4 BUS_CUR */
-    ADC1->SQR3 = (19U << ADC_SQR3_SQ10_Pos)             /* rank 10: PA5 BUS_VOLT    */
-               | ( 3U << ADC_SQR3_SQ11_Pos);            /* rank 11: PA6 CHARGE_VOLT */
+    /* Oversampling: regular group, 16x, >>4 -> 12-bit average per channel.
+     * Must be written while ADEN=0 (ADC is enabled further down).
+     * Cost: each channel result takes ADC_OVS ratio x conversion time */
+    ADC1->CFGR2 = (ADC1->CFGR2 & ~(ADC_CFGR2_OVSR_Msk | ADC_CFGR2_OVSS_Msk
+                                 | ADC_CFGR2_TROVS_Msk | ADC_CFGR2_ROVSM_Msk))
+                | (ADC_OVSR_VAL << ADC_CFGR2_OVSR_Pos)
+                | (ADC_OVSS_VAL << ADC_CFGR2_OVSS_Pos)
+                | ADC_CFGR2_ROVSE;
+
+    /* SQR1 holds L + ranks 1-4, SQR2 ranks 5-9, SQR3 ranks 10-14. 6 bits per rank */
+    uint32_t sqr1 = (ADC_NUM_CH - 1U) << ADC_SQR1_L_Pos;
+    uint32_t sqr2 = 0, sqr3 = 0;
+    for (uint32_t i = 0; i < ADC_NUM_CH; i++){
+        if (i < 4U)      sqr1 |= (uint32_t)adc_rank[i] << (6U * (i + 1U));
+        else if (i < 9U) sqr2 |= (uint32_t)adc_rank[i] << (6U * (i - 4U));
+        else             sqr3 |= (uint32_t)adc_rank[i] << (6U * (i - 9U));
+    }
+    ADC1->SQR1 = sqr1;
+    ADC1->SQR2 = sqr2;
+    ADC1->SQR3 = sqr3;
     // ADC clk = 62.5 MHz (HCLK/4) -> 16 ns/cycle, 12-bit adds 12.5 cycles, 11 channels
     // Per ch rate = 1 / scan time. Total rate = 11 * per ch rate.
     // Data rate = total rate * 2 bytes (12-bit result in a 16-bit DMA halfword)
@@ -122,9 +142,10 @@ void adc_init() {
     //  110 |  247.5 |   260 |  4.160 us |  45.760 us |  21,853 Hz |   240,385  | 0.48 MB/s
     //  111 |  640.5 |   653 | 10.448 us | 114.928 us |   8,701 Hz |    95,712  | 0.19 MB/s
 
-    /* 62.5M = 16ns*/
-    /* 160ns*(247.5 + 12.5) = 41.6us = 24,038 Hz*/
-    /* 247.5 cycles on every channel. 3 bits per channel: SMPR1 = ch 0-9, SMPR2 = ch 10-19 */
+    /* ADC_SMP (adc_dma.h) picks the table row above: 0b100 = 47.5 cycles (60 total = 0.96 us).
+     * With 16x oversampling: 15.4 us per channel, 169 us per 11-ch scan -> ~5.9 kHz per channel.
+     * (Table rows above are the raw, non-oversampled numbers.)
+     * Same sample time on every channel. 3 bits per channel: SMPR1 = ch 0-9, SMPR2 = ch 10-19 */
     uint32_t smp = 0;
     for (uint32_t i = 0; i < 10U; i++){
         smp |= ADC_SMP << (3U * i);
@@ -134,14 +155,46 @@ void adc_init() {
 
     /* Enable the ADC1 */
     ADC1->ISR = ADC_ISR_ADRDY;              /* clear by writing 1 */
-    ADC1->CR |= (ADC_CR_ADEN << ADC_CR_ADEN_Msk);
+    ADC1->CR |= ADC_CR_ADEN;
     while (!(ADC1->ISR & ADC_ISR_ADRDY));   /* wait until ready */
     ADC1->ISR = ADC_ISR_ADRDY;
 
+    /* GPDMA1 CH0: ADC1->DR (16-bit, fixed) -> adc_buf (16-bit, incrementing), paced by ADC1 request.
+     * Block = one full scan (ADC_NUM_CH halfwords), self-linked node restarts it forever */
     DMA_Channel_TypeDef *ch = GPDMA1_Channel0;
-    /* TODO*/
+    ch->CCR = DMA_CCR_RESET;                /* known state, channel must be off */
+    while (ch->CCR & DMA_CCR_EN);
 
+    const uint32_t blk_bytes = ADC_NUM_CH * sizeof(uint16_t);
 
+    adc_ll_node[0] = blk_bytes;                                     /* CBR1 */
+    adc_ll_node[1] = (uint32_t)adc_buf;                             /* CDAR */
+    adc_ll_node[2] = DMA_CLLR_UB1 | DMA_CLLR_UDA | DMA_CLLR_ULL     /* CLLR: points to itself */
+                   | ((uint32_t)adc_ll_node & DMA_CLLR_LA);
 
+    ch->CLBAR = (uint32_t)adc_ll_node & DMA_CLBAR_LBA;              /* upper 16 bits of node address */
+    ch->CTR1  = (1U << DMA_CTR1_SDW_LOG2_Pos)                       /* src halfword */
+              | (1U << DMA_CTR1_DDW_LOG2_Pos)                       /* dst halfword */
+              | DMA_CTR1_DINC;                                      /* dst increments, src fixed */
+    ch->CTR2  = (ADC1_GPDMA_REQ << DMA_CTR2_REQSEL_Pos);       /* HW request from ADC1 */
+    ch->CBR1  = blk_bytes;
+    ch->CSAR  = (uint32_t)&ADC1->DR;
+    ch->CDAR  = (uint32_t)adc_buf;
+    ch->CLLR  = adc_ll_node[2];
+    ch->CCR   = DMA_CCR_EN;                                         /* arm DMA before ADC makes requests */
+
+    ADC1->CR |= ADC_CR_ADSTART;             /* continuous scan from here on */
 }
 
+/**********************************************************************************
+ * adc_read
+ *
+ * Function:
+ *      Latest 12-bit sample for a channel (0-4095), or 0 if channel isn't in the scan.
+ **********************************************************************************/
+uint16_t adc_read(adc_channel_t channel) {
+    for (uint32_t i = 0; i < ADC_NUM_CH; i++){
+        if (adc_rank[i] == (uint8_t)channel) return adc_buf[i];
+    }
+    return 0;
+}
