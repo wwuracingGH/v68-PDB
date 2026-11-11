@@ -28,11 +28,8 @@
  * so everything is off until the MCU drives it high.
  *   CH1-CH8 -> EN + SLEEP_N of that channel's LM74910H eFuseDone with init nexdt shit  
 
-Need to add startup but writing to TLP should be done 
-
-
- *   CHARGE  -> EN_UVLO of the LM74801 ideal diode on the LV charge path (Ideal_Diode sheet)
- * Pins checked against the Rev A schematic, STM32H5 sheet */
+ *  Need to add startup but writing to TLP should be done 
+ *  CHARGE  -> EN_UVLO of the LM74801 ideal diode on the LV charge path (Ideal_Diode sheet) */
 static const ch_pin_t ctrl_pins[PDB_NUM_CTRL] = {
     [PDB_CH1_CTRL]    = { GPIOB,  12 }, 
     [PDB_CH2_CTRL]    = { GPIOA,  7 },
@@ -42,7 +39,7 @@ static const ch_pin_t ctrl_pins[PDB_NUM_CTRL] = {
     [PDB_CH6_CTRL]    = { GPIOB,  1 },   /* CH6 output is the SHUTDOWN pin on the output connector */
     [PDB_CH7_CTRL]    = { GPIOB,  2 },
     [PDB_CH8_CTRL]    = { GPIOB, 10 },
-    [PDB_CHARGE_CTRL] = { GPIOC, 13 },   /* PC13 might have an issue */
+    [PDB_CHARGE_CTRL] = { GPIOC, 13 }  /* PC13 might have an issue */
 };
 
 /* Each TPL0102 addresses */
@@ -140,14 +137,8 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* hi2c) {
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_6);
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7);
   }
-
 }
 
-/**
-  * @brief I2C1 Initialization Function (from CubeMX generated main.c)
-  * @param None
-  * @retval None
-  */
 static void MX_I2C1_Init(void) {
   hi2c1.Instance = I2C1;
   hi2c1.Init.Timing = 0x10707DBC;
@@ -216,8 +207,8 @@ uint8_t channel_ctrl_Init(void) {
  **********************************************************************************/
 uint8_t cur_lim_set(PDB_Channel_t Channel,  uint8_t val, uint8_t volatility) {
     /**/
-    uint8_t status = 0;
-    uint8_t acr = 0;
+    uint8_t status =    0;
+    uint8_t acr =       0;
 
     if (volatility == VOL_MEM){
         acr = TPL_ACR_VOL | TPL_ACR_SHDN;
@@ -238,12 +229,15 @@ uint8_t cur_lim_set(PDB_Channel_t Channel,  uint8_t val, uint8_t volatility) {
  *      This is going to have to be a task because it waits, needs high priority
  *          also need the delay
  **********************************************************************************/
-void PDB_STARTUP() {
-    uint8_t enable = 1;
-    // for (uint32_t i; i < PDB_STARTUP_CH_NUM; i++) {
-    //     PDB_CHANNEL_CTRL_REQ(pdb_settings.startup.channel[i], enable)
-    // }
-    
+void PDB_STARTUP(void) {
+    for (uint32_t i = 0; i < PDB_STARTUP_CH_NUM; i++) {
+        /* TODO: return here if a shutdown/fault happened during the last delay */
+        // if fault! return
+        PDB_CHANNEL_CTRL_REQ((PDB_CTRL_t)pdb_settings.startup.channel[i], 1);
+        if (i < PDB_STARTUP_CH_NUM - 1U) {
+            vTaskDelay(pdMS_TO_TICKS(pdb_settings.startup.delay_ms[i]));
+        }
+    }
 }
 
 /**********************************************************************************

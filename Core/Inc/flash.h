@@ -14,13 +14,13 @@
 #define FLASH_H
 
 #include <stdint.h>
+#include "sys_params.h"           /* PDB_Channel_t, PDB_NUM_CHANNELS */
 #include "channel_control.h"
 
-#define PDB_NUM_CH           11U
-#define PDB_CUR_CH_SENSE_NUM  6U
-#define PDB_STARTUP_CH_NUM    5U        /* TODO*/
-#define SETTINGS_MAGIC    0xDEADAF00u   /* "PDB1" */
-#define SETTINGS_VERSION  1u
+#define PDB_CUR_CH_SENSE_NUM    6U
+#define PDB_STARTUP_CH_NUM      5U        /* TODO*/
+#define SETTINGS_MAGIC          0xDEADAF00u   /* "PDB1" */
+#define SETTINGS_VERSION        1u
 
 /* Specify startup channel order and delay */
 typedef struct {
@@ -32,7 +32,7 @@ typedef struct {
 /* TODO SOME CHANNELS USE VOLT */
 typedef struct {
     uint16_t current_limit_mA[PDB_CUR_CH_SENSE_NUM];
-    uint16_t transients[PDB_NUM_CH];
+    uint16_t transients[PDB_NUM_CHANNELS];     /* indexed by PDB_Channel_t */
 } PDB_CUR_LIMIT_t;
 
 /* ADC settings */
@@ -49,6 +49,14 @@ typedef struct {
     uint16_t pump_speed;
 } PDB_COOLING_t;
 
+/* thresh*/
+typedef struct {
+    uint16_t thresh_high;
+    uint16_t thresh_low;
+    uint16_t thresh_idle;
+    uint16_t thresh_disable;
+}PDB_CHARGE_THRESH_t;
+
 /* Settings */
 typedef struct __attribute__((aligned(16))) {
     uint32_t            magic;
@@ -58,6 +66,7 @@ typedef struct __attribute__((aligned(16))) {
     PDB_CUR_LIMIT_t     cur_limit;
     PDB_ADC_SETTINGS_t  adc;
     PDB_COOLING_t       cooling;
+    PDB_CHARGE_THRESH_t lv_charge_thresh;
     uint32_t            crc;            /* keep last */
 } PDB_SETTINGS_t;
 

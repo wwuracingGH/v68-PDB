@@ -21,13 +21,14 @@
 #define PLL1_P   2U
 #define PLL1_Q   2U
 #define PLL1_R   2U
-/* SYSCLK = ((HSI/M)*N)/P*/
+/* SYSCLK = ((HSI/M)*N)/P */
 /********************************************************************************
  * void sys_clk_init()
  *
  * Function:
- *      Run SYSCLK at 250 MHz from HSI through PLL1. Call first thing in main,
- *      before any peripheral init or starting the scheduler.
+ *      Run SYSCLK at 250 MHz from HSI through PLL1, and start the 16 MHz HSE
+ *      oscillator (bypass, PH0) that clocks FDCAN. Call first thing in main, before any
+ *      peripheral init or starting the scheduler.
  ********************************************************************************/
 void sys_clk_init(){
     /* Core voltage to VOS0 (11), required above 200 MHz. Must happen before raising the clock */
@@ -45,6 +46,15 @@ void sys_clk_init(){
     /* Set HSIDIV /1 */
     RCC->CR &= ~RCC_CR_HSIDIV_Msk;
     while (!(RCC->CR & RCC_CR_HSIDIVF));
+
+    /* HSE: 16 MHz oscillator module driving PH0 only, so bypass mode (PH1 is free GPIO).
+     * HSEEXT = 1: digital bypass. The oscillator has an HCMOS output (full-swing square wave).
+     * (HSEEXT = 0, analog bypass, would only be for a sine / clipped-sine output.)
+     * HSEBYP and HSEEXT must be set while HSEON = 0. Clocks FDCAN1/2 directly, see below.
+     * Hangs here if the oscillator isn't running */
+    RCC->CR |= RCC_CR_HSEBYP | RCC_CR_HSEEXT;
+    RCC->CR |= RCC_CR_HSEON;
+    while (!(RCC->CR & RCC_CR_HSERDY));
 
     /* PLL1 source/range/prescaler. Only writable while PLL1 is off.
      * 
@@ -77,8 +87,8 @@ void sys_clk_init(){
     RCC->CFGR1 = (RCC->CFGR1 & ~RCC_CFGR1_SW_Msk) | (3U << RCC_CFGR1_SW_Pos);
     while ((RCC->CFGR1 & RCC_CFGR1_SWS_Msk) != (3U << RCC_CFGR1_SWS_Pos));
 
-    /* FDCAN kernel clock = PLL1 Q (01) */
-    RCC->CCIPR5 = (RCC->CCIPR5 & ~RCC_CCIPR5_FDCANSEL_Msk) | (1U << RCC_CCIPR5_FDCANSEL_Pos);
+    /* FDCAN kernel clock = HSE (00): exact 16 MHz, divides evenly into 250k and 1M (can.h) */
+    RCC->CCIPR5 &= ~RCC_CCIPR5_FDCANSEL_Msk;
 
     /* Keep CMSIS SystemCoreClock in sync with the new clock */
     SystemCoreClockUpdate();

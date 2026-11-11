@@ -15,20 +15,7 @@
 #ifndef CHANNEL_CONTROL_H
 #define CHANNEL_CONTROL_H
 #include "stm32h533xx.h"
-
-typedef enum{
-    PDB_CH1 = 0,
-    PDB_CH2 = 1,
-    PDB_CH3 = 2,
-    PDB_CH4 = 3,
-    PDB_CH5 = 4,
-    PDB_CH6 = 5,
-    PDB_CH7 = 6,
-    PDB_CH8 = 7,
-    PDB_BUS_CUR = 8,
-    PDB_BUS_VOLT = 9,
-    ADC_CHARGE_VOLT = 10
-} PDB_Channel_t;
+#include "sys_params.h"         /* PDB_Channel_t, PDB_NUM_CHANNELS */
 
 typedef enum {
     PDB_CH1_CTRL = 0,
@@ -47,7 +34,7 @@ typedef struct {
     uint8_t       pin;
 } ch_pin_t;
 
-#define PDB_NUM_CH      8U  /* switched outputs CH1-CH8 */
+#define PDB_NUM_OUTPUTS 8U  /* switched outputs CH1-CH8 */
 #define PDB_NUM_CTRL    9U  /* control outputs: CH1-CH8 enables + charge path enable (PDB_CTRL_t) */
 #define PDB_NUM_POTS    6U  /* TPL0102 current-limit pots on CH1-CH6 */
 #define VOL_MEM 1U

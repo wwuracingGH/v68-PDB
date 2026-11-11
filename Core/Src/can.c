@@ -33,11 +33,13 @@ __attribute__((weak)) void Shared_processCAN(CAN_Message_t* msg) { (void)msg; }
 /*******************************************************************************
  * CAN_busInit()
  *
- * Configures one FDCAN peripheral and puts it on the bus. Shared by both buses;
- * only the prescaler differs.
+ * Function:
+ *      Configures one FDCAN peripheral and puts it on the bus. Shared by both buses;
+ *      only the prescaler differs.
  *
- * Bit time = 5 tq (sync 1 + TSEG1 3 + TSEG2 1) -> sample point 80%.
- * Kernel clock 125 MHz, so nbrp = 125 MHz / (5 * baud) - 1 (see CANx_BAUD_PRES).
+ *      Bit time = 16 tq (sync 1 + TSEG1 13 + TSEG2 2) -> sample point 87.5%, SJW 2 tq.
+ *      Kernel clock 16 MHz HSE, so
+ *      brp = 16 MHz / (16 * baud) - 1 (see CANx_BAUD_PRES in can.h).
  *******************************************************************************/
 static void CAN_busInit(FDCAN_GlobalTypeDef* FDCAN, uint32_t nbrp) {
     /* Wake from sleep */
@@ -54,10 +56,11 @@ static void CAN_busInit(FDCAN_GlobalTypeDef* FDCAN, uint32_t nbrp) {
     FDCAN->CCCR |= FDCAN_CCCR_DAR;   /* disable automatic retransmission */
     FDCAN->CCCR |= FDCAN_CCCR_FDOE;  /* FD frame format enabled */
 
-    FDCAN->NBTP = (nbrp << FDCAN_NBTP_NBRP_Pos) |
-                  (2 << FDCAN_NBTP_NTSEG1_Pos) |
-                  (0 << FDCAN_NBTP_NTSEG2_Pos) |
-                  (0 << FDCAN_NBTP_NSJW_Pos);
+    /* Register fields hold (value - 1) */
+    FDCAN->NBTP = (nbrp              << FDCAN_NBTP_NBRP_Pos)   |
+                  ((CAN_TSEG1 - 1UL) << FDCAN_NBTP_NTSEG1_Pos) |
+                  ((CAN_TSEG2 - 1UL) << FDCAN_NBTP_NTSEG2_Pos) |
+                  ((CAN_SJW - 1UL)   << FDCAN_NBTP_NSJW_Pos);
 
     /* No filters: accept all std + ext frames into FIFO0, overwrite when full */
     FDCAN->RXGFC |= (0 << FDCAN_RXGFC_ANFS_Pos) |

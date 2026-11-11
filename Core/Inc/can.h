@@ -4,14 +4,25 @@
 #include "stm32h5xxCANSRAM.h"
 #include <stdbool.h>
 #include "FreeRTOS.h"
-
-
+#include "config.h"
 
 #define CAN1_BAUD 250000UL
 #define CAN2_BAUD 1000000UL
 
-#define CAN1_BAUD_PRES ((125000000UL / (5UL * CAN1_BAUD)) - 1UL)
-#define CAN2_BAUD_PRES ((125000000UL / (5UL * CAN2_BAUD)) - 1UL)
+/* FDCAN kernel clock = 16 MHz HSE (config.c). Nominal bit = 16 time quanta at both rates:
+ * sync 1 + TSEG1 13 + TSEG2 2 -> sample point 87.5% (CiA recommendation), resync jump 2 tq */
+#define CAN_KER_CLK_HZ  HSE_CLK_HZ
+#define CAN_TQ_PER_BIT  16UL
+#define CAN_TSEG1       13UL
+#define CAN_TSEG2       2UL
+#define CAN_SJW         2UL
+
+#define CAN1_BAUD_PRES ((CAN_KER_CLK_HZ / (CAN_TQ_PER_BIT * CAN1_BAUD)) - 1UL)   /* 3 -> 250 ns tq */
+#define CAN2_BAUD_PRES ((CAN_KER_CLK_HZ / (CAN_TQ_PER_BIT * CAN2_BAUD)) - 1UL)   /* 0 -> 62.5 ns tq */
+
+_Static_assert(1UL + CAN_TSEG1 + CAN_TSEG2 == CAN_TQ_PER_BIT, "CAN bit segments must add up to CAN_TQ_PER_BIT");
+_Static_assert(CAN_KER_CLK_HZ % (CAN_TQ_PER_BIT * CAN1_BAUD) == 0, "CAN1_BAUD does not divide evenly from the kernel clock");
+_Static_assert(CAN_KER_CLK_HZ % (CAN_TQ_PER_BIT * CAN2_BAUD) == 0, "CAN2_BAUD does not divide evenly from the kernel clock");
 
 /* FreeRTOS */
 // Sys PRIO is 4 ?

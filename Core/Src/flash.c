@@ -17,6 +17,7 @@
 #include <string.h>     /* memcpy, memcmp */
 #include "stm32h5xx.h"
 #include "flash.h"
+#include "sys_params.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
@@ -52,7 +53,7 @@ static const PDB_SETTINGS_t default_settings = {
     },
     .cur_limit = {
         .current_limit_mA = { 10000, 10000, 5000, 5000, 20000, 20000 },
-        .transients = {1,1,1,1,1,1,1,1,1,1,1},
+        .transients = {1,1,1,1,1,1,1,1,1,1},     /* one per PDB_Channel_t */
     },
     .adc = {
         .sample_us        = 100,
@@ -62,8 +63,13 @@ static const PDB_SETTINGS_t default_settings = {
     .cooling = {
         .fan_speed  = 50,
         .pump_speed = 100,
-    }
+    },
+    .lv_charge_thresh = {
+        .thresh_high = 1460,
+        .thresh_low = 1400,
+        .thresh_idle = 3300,
 
+    }
 };
 
 void settings_reset_defaults(void) {
