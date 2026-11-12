@@ -1,3 +1,13 @@
+/**********************************************************************************
+ * can.h
+ *
+ * Author:  WWU FSAE 
+ *          Jackson Newman
+ * 
+ * Last Uptdated: 11/6/26
+ *
+ * Version: 0.1 v68
+ **********************************************************************************/
 #ifndef CAN_H
 #define CAN_H
 
@@ -8,6 +18,11 @@
 
 #define CAN1_BAUD 250000UL
 #define CAN2_BAUD 1000000UL
+
+#define PDB_CANID_PARAM_REVEAL      0x305
+#define PDB_CANID_PARAM_CHANGE      0x306
+#define PDB_CANID_PARAM_REQUEST     0x307
+
 
 /* FDCAN kernel clock = 16 MHz HSE (config.c). Nominal bit = 16 time quanta at both rates:
  * sync 1 + TSEG1 13 + TSEG2 2 -> sample point 87.5% (CiA recommendation), resync jump 2 tq */

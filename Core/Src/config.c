@@ -9,8 +9,8 @@
  * Version: 0.1 v68
  *
  * Function:
+ *      Setup system clock and set the HSE to use the external TXO
  **********************************************************************************/
-
 #include "config.h"
 #include "stm32h5xx.h"
 #include "FreeRTOS.h"
@@ -22,6 +22,7 @@
 #define PLL1_Q   2U
 #define PLL1_R   2U
 /* SYSCLK = ((HSI/M)*N)/P */
+
 /********************************************************************************
  * void sys_clk_init()
  *

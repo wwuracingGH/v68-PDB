@@ -18,6 +18,7 @@
 #include "sys_params.h"
 #include "main.h"
 #include "delay.h"
+#include "flash.h"
 #include "FreeRTOS.h"
 
 #include "task.h"
@@ -36,7 +37,8 @@ void main(){
     sys_clk_init();     /* 250 MHz first. HAL_Init sizes the HAL tick from the clocks it sees */
     delay_init();
     HAL_Init();       /* NVIC priority grouping 4 (what FreeRTOS needs), HAL tick on TIM6 (stm32h5xx_hal_timebase_tim.c) */
-
+    settings_load();  /* before anything reads pdb_rt */
+    
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
@@ -47,24 +49,14 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
 }
 
 /* HAL */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  /* USER CODE BEGIN Callback 0 */
-
-  /* USER CODE END Callback 0 */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM6)
   {
     HAL_IncTick();
   }
-  /* USER CODE BEGIN Callback 1 */
-
-  /* USER CODE END Callback 1 */
 }
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  /* TODO*/
   __disable_irq();
   while (1)
   {

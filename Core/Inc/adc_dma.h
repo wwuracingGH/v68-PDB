@@ -17,9 +17,6 @@
 
 #define ADC_SMP 0b100           /* 47.5 cycles, see timing table in adc_dma.c */
 
-/* Hardware oversampling: ADC does ADC_OVS_RATIO back-to-back conversions per channel and
- * hands back one result. OVSR encoding: 0=2x 1=4x 2=8x 3=16x ... Shift keeps result at 12-bit:
- * 16x sum is 16 bits, >>4 = average, so adc_read() is still 0-4095 */
 #define ADC_OVSR_VAL 3U         /* 16x */
 #define ADC_OVSS_VAL 4U         /* right shift 4 */
 #define ADC_NUM_CH 10U          /* channels in ADC1's scan (charge voltage is on ADC2) */
@@ -32,7 +29,6 @@
 #define ADC2_OVSR_VAL 3U        /* 16x */
 #define ADC2_AWD_FILT 7U        /* trip after 8 consecutive results outside the window (~1.3 ms) */
 
-/* ADC1 input channel numbers (ADC1_INPx), from the PDB pin concept .ioc */
 typedef enum{
     ADC_CH5_CUR     = 0,    /* PA0 */
     ADC_CH6_CUR     = 1,    /* PA1 */
@@ -53,9 +49,9 @@ void adc2_start(void);
 uint16_t adc_read(adc_channel_t channel);
 
 /* ADC2 (LV charge voltage) */
-uint16_t adc2_read(void);                           /* latest 12-bit average, 0-4095 */
-void     adc2_awd_set(uint16_t low, uint16_t high); /* window in counts, safe while converting */
-void     adc2_awd_arm(void);                        /* clear flag + enable watchdog interrupt */
-void     adc2_awd_disarm(void);                     /* disable watchdog interrupt + clear flag */
+uint16_t adc2_read(void);
+void     adc2_awd_set(uint16_t low, uint16_t high);
+void     adc2_awd_arm(void);
+void     adc2_awd_disarm(void);
 
 #endif

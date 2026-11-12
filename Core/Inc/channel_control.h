@@ -36,7 +36,7 @@ typedef struct {
 
 #define PDB_NUM_OUTPUTS 8U  /* switched outputs CH1-CH8 */
 #define PDB_NUM_CTRL    9U  /* control outputs: CH1-CH8 enables + charge path enable (PDB_CTRL_t) */
-#define PDB_NUM_POTS    6U  /* TPL0102 current-limit pots on CH1-CH6 */
+#define PDB_NUM_DAC     8U  /* DAC53608 outputs, all 8 used (PDB_DAC_t) */
 #define VOL_MEM 1U
 #define NON_VOL_MEM 0U
 

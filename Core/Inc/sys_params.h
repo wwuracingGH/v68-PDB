@@ -50,6 +50,37 @@ typedef enum {
 /* Macro for general ADC counts */
 #define ADC_MV_TO_COUNTS(mv)  (((mv) * ADC_FULL_SCALE) / (ADC_VREF_MV))
 
+/******************************** DAC (DAC53608) ******************************************/
+/* DAC53608 outputs. CH1-CH6 use the same index as PDB_Channel_t (PDB_CH1 = 0 ...) */
+/* ADC*/
+typedef enum {
+    PDB_DAC_12VOUT,         /* VOUTA */
+    PDB_DAC_5AVOUT,         /* VOUTB */
+    PDB_DAC_CH1,            /* VOUTC */
+    PDB_DAC_CH2,             /* VOUTD */
+    PDB_DAC_CH3,             /* VOUTE */
+    PDB_DAC_CH4,             /* VOUTF */
+    PDB_DAC_CH5,             /* VOUTG */
+    PDB_DAC_CH6             /* VOUTH */
+
+} PDB_DAC_t;
+
+#define DAC_NUM_CH      8U
+#define DAC_VREF_MV         3300UL
+#define DAC_FULL_SCALE      1024
+#define DAC_VREF_V      3.3f
+#define ILIM_VREF_V     1.22f
+#define CS_GAIN         9.83f
+#define R_SENSE_OHM     0.005f
+#define R_ILIM_OHM      68000.0f
+#define R_DAC_OHM       120000.0f
+#define R_SET_OHM       51.0
+#define CUR_MA_TO_DAC_COUNTS(mA) ((DAC_FULL_SCALE / DAC_VREF_V)         \
+                                * (ILIM_VREF_V + R_DAC_OHM              \
+                                * (ILIM_VREF_V / R_ILIM_OHM             \                         
+                                - (0.001f * (mA) * R_SENSE_OHM)         \
+                                / (CS_GAIN * R_SET_OHM))))
+
 /****************************** LV Charge *********************************************/
 extern TaskHandle_t lv_charge_task_handle;
 #define LV_CHARGE_DIV       5UL     /* charge voltage / PA6 voltage */

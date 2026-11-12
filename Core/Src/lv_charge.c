@@ -29,6 +29,9 @@
  *  */
 TaskHandle_t lv_charge_task_handle;
 
+uint16_t thresh_high;
+uint16_t thresh_low;
+
 typedef enum {
     idle,
     init,
@@ -41,14 +44,20 @@ static void switch_lv_charge_state(Charge_State_t next_state) {
     lv_charge_state = next_state;
     switch (next_state) {
         case idle:
-            adc2_awd_set(0,pdb_settings.lv_charge_thresh.thresh_low);
+            adc2_awd_set(0,thresh_low);
             break;
         case charging:
-            adc2_awd_set(pdb_settings.lv_charge_thresh.thresh_low, 
-                        pdb_settings.lv_charge_thresh.thresh_high);
+            adc2_awd_set(thresh_low, thresh_high);
             PDB_state.lv_charge = 1;
             break;
     }
+}
+
+
+void lv_charge_init() {
+    thresh_high = pdb_rt.lv_thresh_high;    /* already ADC2 counts */
+    thresh_low  = pdb_rt.lv_thresh_low;
+    // reset AWD and ADC2 maybe
 }
 
 /**********************************************************************************
@@ -85,7 +94,7 @@ void LV_Charge_Task(void *params) {
                 start = xTaskGetTickCount();
             }
             if (xTaskGetTickCount() - start >= pdMS_TO_TICKS(1000)) {
-                if (v <= pdb_settings.lv_charge_thresh.thresh_high) {
+                if (v <= thresh_high) {
                     counting = 0;
                     switch_lv_charge_state(charging);
                     adc2_awd_arm();
