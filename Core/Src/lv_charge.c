@@ -14,6 +14,7 @@
 #include "lv_charge.h"
 #include "main.h"
 #include "sys_params.h"
+#include "control.h"
 #include "flash.h"
 #include "adc_dma.h"
 #include "FreeRTOS.h"
@@ -27,17 +28,11 @@
  * desired voltage 3v * 0.2 = 0.6
  * 0.6v / steps =  740.7407
  *  */
+Charge_State_t lv_charge_state;
 TaskHandle_t lv_charge_task_handle;
 
 uint16_t thresh_high;
 uint16_t thresh_low;
-
-typedef enum {
-    idle,
-    init,
-    charging
-} Charge_State_t;
-Charge_State_t lv_charge_state;
 
 static void switch_lv_charge_state(Charge_State_t next_state) {
     // needs a semaphore and mutex so no races
@@ -55,7 +50,7 @@ static void switch_lv_charge_state(Charge_State_t next_state) {
 
 
 void lv_charge_init() {
-    thresh_high = pdb_rt.lv_thresh_high;    /* already ADC2 counts */
+    thresh_high = pdb_rt.lv_thresh_high;
     thresh_low  = pdb_rt.lv_thresh_low;
     // reset AWD and ADC2 maybe
 }
@@ -74,10 +69,11 @@ void lv_charge_init() {
  **********************************************************************************/
 void LV_Charge_Task(void *params) {
     (void)params;
+
     uint32_t   v;
     uint8_t    counting = 0;
     TickType_t start    = 0;
-
+    lv_charge_init();
     switch_lv_charge_state(idle);
     adc2_awd_arm();
 

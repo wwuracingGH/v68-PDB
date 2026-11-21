@@ -108,7 +108,7 @@ static const uint8_t dac_ch_reg[PDB_NUM_DAC] = {
     [PDB_DAC_5AVOUT] = DAC_CMD_DACB_5VOUT,
 };
 
-#define I2C_TIMEOUT_MS  10U         /* HAL timeout per transfer (HAL tick on TIM6). A 3 byte write at 100 kHz is ~0.3 ms */
+#define I2C_TIMEOUT_MS  10U
 
 I2C_HandleTypeDef hi2c1;
 
@@ -227,7 +227,7 @@ static void MX_I2C1_Init(void) {
  * Returns:
  *      Bitmask of pots that did not ACK, bit 0 = CH1 ... bit 5 = CH6. 0 = all good
  **********************************************************************************/
-uint8_t channel_ctrl_Init(void) {
+void channel_ctrl_Init() {
     uint8_t status = 0;
     MX_I2C1_Init();
     ch_gpio_init();
@@ -325,6 +325,11 @@ void PDB_CHANNEL_SHUTDOWN(void) {
  * Returns:
  *      Bitmask of outputs that failed bit 0 = PDB_DAC_CH1.
  *      0xFF = power-up write failed. 0 = SUCCESS
+ * 
+ * 
+ * 
+ * 
+ *  FUCKED
  **********************************************************************************/
 uint8_t efuse_cur_ctrl() {
     uint8_t status = 0;

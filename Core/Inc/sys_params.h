@@ -17,12 +17,10 @@
 #include <stdint.h>
 #include "FreeRTOS.h"
 #include "task.h"
-typedef struct {
-    uint8_t lv_charge;
 
-
-} PDB_STATE_t;
-extern PDB_STATE_t PDB_state;
+/******************************** Task Parameters **********************************/
+#define LV_CHARGE_TASK_PRIO     (tskIDLE_PRIORITY + 3)
+#define LV_CHARGE_TASK_STACK    256U
 
 /******************************** Channels ******************************************/
 

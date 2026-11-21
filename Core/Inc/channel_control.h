@@ -40,9 +40,8 @@ typedef struct {
 #define VOL_MEM 1U
 #define NON_VOL_MEM 0U
 
-
-uint8_t channel_ctrl_Init(void);
-void    PDB_CHANNEL_CTRL_REQ(PDB_CTRL_t ctrl, uint8_t val);
-void    PDB_CHANNEL_SHUTDOWN(void);
+void channel_ctrl_Init(void);
+void PDB_CHANNEL_CTRL_REQ(PDB_CTRL_t ctrl, uint8_t val);
+void PDB_CHANNEL_SHUTDOWN(void);
 
 #endif

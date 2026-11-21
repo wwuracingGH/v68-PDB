@@ -105,8 +105,8 @@ void Error_Handler(void);
 #define CP_ESTOP_VT_GPIO_Port GPIOC
 #define BSPD_VT_Pin GPIO_PIN_7
 #define BSPD_VT_GPIO_Port GPIOC
-#define BOTS_VT_Pin GPIO_PIN_8
-#define BOTS_VT_GPIO_Port GPIOC
+#define BOTS_VT_Pin GPIO_PIN_2
+#define BOTS_VT_GPIO_Port GPIOD
 #define LAMP_CHECK_Pin GPIO_PIN_9
 #define LAMP_CHECK_GPIO_Port GPIOC
 #define BLUE_PWM_Pin GPIO_PIN_8

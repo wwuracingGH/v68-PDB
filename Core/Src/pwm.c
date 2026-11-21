@@ -13,15 +13,18 @@
  *      wake up sequence.
  **********************************************************************************/
 #include "stm32h5xx.h"
-#include "config.h"
 #include "main.h"
-#include "delay.h"
-#include "FreeRTOS.h"
 
+#include "FreeRTOS.h"
 #include "task.h"
-#include "timers.h"
-#include "queue.h"
-#include "semphr.h"
+
+#include "adc_dma.h"
+#include "can.h"
+#include "channel_control.h"
+#include "delay.h"
+#include "flash.h"
+#include "lv_charge.h"
+#include "pwm.h"
 
 /* Frequency = timer clock / ((PSC + 1) × (ARR + 1)) */
 /* Duty cycle = (CCR/(ARR+1))*/
@@ -43,7 +46,7 @@
  *      Pump:   PB4, TIM3, TIM_CCER_CC1E.
  *      Fan:    PB3, TIM2, TIM_CCER_CC2E.
  **********************************************************************************/
-void pwm_init(void){
+void pwm_init(){
     /* 1. Clocks for the GPIO port and the timer */
     RCC->AHB2ENR  |= RCC_AHB2ENR_GPIOBEN;
     RCC->APB1LENR |= RCC_APB1LENR_TIM2EN |RCC_APB1LENR_TIM3EN;

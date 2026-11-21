@@ -50,8 +50,12 @@ uint16_t adc_read(adc_channel_t channel);
 
 /* ADC2 (LV charge voltage) */
 uint16_t adc2_read(void);
-void     adc2_awd_set(uint16_t low, uint16_t high);
-void     adc2_awd_arm(void);
-void     adc2_awd_disarm(void);
+uint16_t adc_read(adc_channel_t channel);
+void adc2_awd_set(uint16_t low, uint16_t high);
+void adc2_awd_arm(void);
+void adc2_awd_disarm(void);
+void adc1_start(void);
+void adc2_start(void);
+void ADC2_IRQHandler(void);
 
 #endif

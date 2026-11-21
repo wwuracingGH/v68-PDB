@@ -14,13 +14,13 @@
 #include "config.h"
 #include "stm32h533xx.h"
 #include "sys_params.h"
+#include "control.h"
+#include "delay.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
 #include "queue.h"
 #include "semphr.h"
-
-#include "delay.h"
 
 #define ADC_VREG_DELAY_US 20UL  /* Must delay after waking from deep power-down 20us */
 #define ADC1_GPDMA_REQ    0U
@@ -263,7 +263,7 @@ void adc1_start(void) {
 }
 
 void adc2_start(void) {
-    ADC2->CR |= ADC_CR_ADSTART;             /* continuous, one channel */
+    ADC2->CR |= ADC_CR_ADSTART;             /* continuous, lv_charge */
 }
 
 /**********************************************************************************
@@ -324,4 +324,14 @@ uint16_t adc_read(adc_channel_t channel) {
         if (adc_rank[i] == (uint8_t)channel) return adc_buf[i];
     }
     return 0;
+}
+/**********************************************************************************
+ * CH_Cur_Log_Task
+ *
+ * Function:
+ *      Latest 12-bit sample for a channel (0-4095), or 0 if channel isn't in the scan.
+ **********************************************************************************/
+void CH_Cur_Log_Task(void *params) {
+    
+    
 }
