@@ -6,7 +6,7 @@
  *
  * Last Uptdated: 11/6/26
  *
- * Version: 0.1 v68
+ * Version: 0.2 v68
  *
  * Function:
  * 
@@ -19,8 +19,9 @@
 #include "channel_control.h"        /* PDB_CTRL_t, PDB_NUM_CTRL, PDB_NUM_OUTPUTS */
 
 #define SETTINGS_MAGIC          0xDEADAF00u
-#define SETTINGS_VERSION        2u          /* bump on ANY change to PDB_SETTINGS_t */
+#define SETTINGS_VERSION        3u         /* bump on ANY change to PDB_SETTINGS_t */
 
+/***************************** Flash Param IDs ************************************/
 /**********************************************************************************
  * Parameter IDs for CAN PARAM_CHANGE / PARAM_REQUEST (same message format as the VCU)
  *
@@ -30,6 +31,7 @@
  *   0x2n controllable  0/1
  *   0x3n logged        0/1
  * Charge slot (n = 8): lv_charge.c owns it, limit and delay are unused
+ * CH0 12V/5V limits are not channel IDs, they use 0x70/0x71 (RAIL_LIMITS)
  * magic, version and crc are not params
  **********************************************************************************/
 #define FLASH_PARAMID_CH_INDEX(id)      ((id) & 0x0FU)      /* -> PDB_CTRL_t */
@@ -42,8 +44,8 @@
 #define FLASH_PARAMID_CH4_LIMIT         0x03U
 #define FLASH_PARAMID_CH5_LIMIT         0x04U
 #define FLASH_PARAMID_CH6_LIMIT         0x05U
-#define FLASH_PARAMID_CH7_LIMIT         0x06U
-#define FLASH_PARAMID_CH8_LIMIT         0x07U
+// #define FLASH_PARAMID_CH7_LIMIT         0x06U    No limits currently
+// #define FLASH_PARAMID_CH8_LIMIT         0x07U
 #define FLASH_PARAMID_CHARGE_LIMIT      0x08U
 
 #define FLASH_PARAMID_DELAY_BASE        0x10U
@@ -92,10 +94,15 @@
 #define FLASH_PARAMID_ADC_OVERSAMPLE    0x61U
 #define FLASH_PARAMID_ADC_PRESCALER     0x62U
 
+/* CH0 rail current limits (RAIL_LIMITS), DAC code 0-1023, 0 = highest limit */
+#define FLASH_PARAMID_12V_LIMIT         0x70U
+#define FLASH_PARAMID_5V_LIMIT          0x71U
+
+/****************************** Channel Config **********************************************/
 /********************************************************************************************
  * Channel config word, one per PDB_CTRL_t (CH1-CH8 + LV charge)
  *
- * | B31-B28 spare | B27 logged | B26 controllable | B25-B10 startup delay (ms) | B9-B0 cur limit |
+ * | B31-B29 spare| B28 lampcheck | B27 logged | B26 controllable | B25-B10 startup delay (ms) | B9-B0 cur limit |
  *
  * cur limit: raw DAC53608 code from the programmer. 0 = highest limit (~2.8 A), 1023 = lowest
  * delay:     ms after PDB_STARTUP begins, so the order comes from the delays.
@@ -109,6 +116,8 @@
 #define CH_CFG_CTRL             (1UL << CH_CFG_CTRL_Pos)
 #define CH_CFG_LOGGED_Pos       27U
 #define CH_CFG_LOGGED           (1UL << CH_CFG_LOGGED_Pos)
+#define CH_CFG_LAMP_CHECK_Pos   28U
+#define CH_CFG_LAMP_CHECK       (1UL <<CH_CFG_LAMP_CHECK_Pos)
 
 #define CH_CFG_DELAY_NONE       0xFFFFU
 
@@ -116,7 +125,33 @@
 #define CH_CFG(limit, delay_ms, flags) ((((uint32_t)(limit)    << CH_CFG_LIMIT_Pos) & CH_CFG_LIMIT_Msk) |\
                                         (((uint32_t)(delay_ms) << CH_CFG_DELAY_Pos) & CH_CFG_DELAY_Msk) |\
                                         (uint32_t)(flags))
+/* Same 9 words by name or by PDB_CTRL_t index */
+typedef union {
+    struct {
+        uint32_t PDB_CH1_CONFIG;
+        uint32_t PDB_CH2_CONFIG;
+        uint32_t PDB_CH3_CONFIG;
+        uint32_t PDB_CH4_CONFIG;
+        uint32_t PDB_CH5_CONFIG;
+        uint32_t PDB_CH6_CONFIG;    /* Shutdown */
+        uint32_t PDB_CH7_CONFIG;    /* NO DAC (Fans) */
+        uint32_t PDB_CH8_CONFIG;    /* NO DAC (Pump) */
+        uint32_t PDB_CHARGE_CONFIG;
+    };
+    uint32_t ch[PDB_NUM_CTRL];
+} PDB_CONFIGS_t;
+_Static_assert(sizeof(PDB_CONFIGS_t) == PDB_NUM_CTRL * sizeof(uint32_t), "PDB_CONFIGS_t must be 9 packed u32s");
 
+/***********************Supply Rail Current Limits *****************************/
+/* RAIL_LIMITS: | B31-B26 spare | B25-B16 5V DAC code | B15-B10 spare | B9-B0 12V DAC code | */
+#define RAIL_12V_Pos            0U
+#define RAIL_12V_Msk            (0x3FFUL << RAIL_12V_Pos)
+#define RAIL_5V_Pos             16U
+#define RAIL_5V_Msk             (0x3FFUL << RAIL_5V_Pos)
+#define RAIL_LIMITS(v5, v12) ((((uint32_t)(v5)  << RAIL_5V_Pos)  & RAIL_5V_Msk) |\
+                              (((uint32_t)(v12) << RAIL_12V_Pos) & RAIL_12V_Msk))
+
+/****************************** ADC *******************************************/
 /* LV_CHARGE_THRESHS: | B31-B24 spare | B23-B12 high | B11-B0 low |, ADC2 counts from the programmer */
 #define LV_THRESH_LOW_Pos       0U
 #define LV_THRESH_LOW_Msk       (0xFFFUL << LV_THRESH_LOW_Pos)
@@ -124,14 +159,6 @@
 #define LV_THRESH_HIGH_Msk      (0xFFFUL << LV_THRESH_HIGH_Pos)
 #define LV_THRESHS(high, low) ((((uint32_t)(high) << LV_THRESH_HIGH_Pos) & LV_THRESH_HIGH_Msk) |\
                               (((uint32_t)(low)  << LV_THRESH_LOW_Pos)  & LV_THRESH_LOW_Msk))
-
-/* PWM_CONFIG: | B31-B16 pump | B15-B0 fan | */
-#define PWM_FAN_Pos             0U
-#define PWM_FAN_Msk             (0xFFFFUL << PWM_FAN_Pos)
-#define PWM_PUMP_Pos            16U
-#define PWM_PUMP_Msk            (0xFFFFUL << PWM_PUMP_Pos)
-#define PWM_CFG(pump, fan) ((((uint32_t)(pump) << PWM_PUMP_Pos) & PWM_PUMP_Msk) |\
-                            (((uint32_t)(fan)  << PWM_FAN_Pos)  & PWM_FAN_Msk))
 
 /* ADC settings */
 typedef struct {
@@ -141,23 +168,17 @@ typedef struct {
     uint8_t  reserved;
 } PDB_ADC_SETTINGS_t;
 
-/* Same 9 words by name or by PDB_CTRL_t index */
-typedef union {
-    struct {
-        uint32_t PDB_CH1_CONFIG;
-        uint32_t PDB_CH2_CONFIG;
-        uint32_t PDB_CH3_CONFIG;
-        uint32_t PDB_CH4_CONFIG;
-        uint32_t PDB_CH5_CONFIG;
-        uint32_t PDB_CH6_CONFIG;
-        uint32_t PDB_CH7_CONFIG;
-        uint32_t PDB_CH8_CONFIG;
-        uint32_t PDB_CHARGE_CONFIG;
-    };
-    uint32_t ch[PDB_NUM_CTRL];
-} PDB_CONFIGS_t;
-_Static_assert(sizeof(PDB_CONFIGS_t) == PDB_NUM_CTRL * sizeof(uint32_t), "PDB_CONFIGS_t must be 9 packed u32s");
 
+/**************************** PWM **********************************************/
+/* PWM_CONFIG: | B31-B16 pump | B15-B0 fan | */
+#define PWM_FAN_Pos             0U
+#define PWM_FAN_Msk             (0xFFFFUL << PWM_FAN_Pos)
+#define PWM_PUMP_Pos            16U
+#define PWM_PUMP_Msk            (0xFFFFUL << PWM_PUMP_Pos)
+#define PWM_CFG(pump, fan) ((((uint32_t)(pump) << PWM_PUMP_Pos) & PWM_PUMP_Msk) |\
+                            (((uint32_t)(fan)  << PWM_FAN_Pos)  & PWM_FAN_Msk))
+
+/*************************** Flash ********************************************/
 /**********************************************************************************
  * PDB_SETTINGS_t, what sits in flash
  *
@@ -165,7 +186,8 @@ _Static_assert(sizeof(PDB_CONFIGS_t) == PDB_NUM_CTRL * sizeof(uint32_t), "PDB_CO
  * version:           SETTINGS_VERSION
  * LV_CHARGE_THRESHS: | B23-B12 High V thresh | B11-B0 Low V thresh |
  * PWM_CONFIG:        | B31-B16 PUMP PWM | B15-B0 FAN PWM |
- * channel_config:    one CH_CFG word per PDB_CTRL_t
+ * RAIL_LIMITS:       | B25-B16 5V DAC code | B9-B0 12V DAC code |
+ * channel_config:    one CH_CFG word per PDB_CTRL_t (CH1-CH6 limits live here)
  * crc:               CRC32 of everything before it. Keep last
  **********************************************************************************/
 typedef struct __attribute__((aligned(16))) {
@@ -173,18 +195,21 @@ typedef struct __attribute__((aligned(16))) {
     uint32_t            version;
     uint32_t            LV_CHARGE_THRESHS;
     uint32_t            PWM_CONFIG;
+    uint32_t            RAIL_LIMITS;
     PDB_CONFIGS_t       channel_config;
     PDB_ADC_SETTINGS_t  adc;
     uint32_t            crc;
 } PDB_SETTINGS_t;
 _Static_assert(sizeof(PDB_SETTINGS_t) % 16U == 0U, "flash programs 16 bytes at a time");
 
+/************************ Runtime Settings *************************************/
 /* Unpacked copy of pdb_settings settings_decode() rebuilds it */
 typedef struct {
-    uint16_t limit[PDB_NUM_CTRL];           /* DAC code */
+    uint16_t limit[PDB_NUM_DAC];            /* DAC code per PDB_DAC_t: 12V, 5V, CH1-CH6 */
     uint16_t delay_ms[PDB_NUM_CTRL];        /* CH_CFG_DELAY_NONE = not started by PDB_STARTUP */
     uint8_t  controllable[PDB_NUM_CTRL];
     uint8_t  logged[PDB_NUM_CTRL];
+    uint8_t  lamp_check[PDB_NUM_CTRL];
     uint16_t lv_thresh_high;
     uint16_t lv_thresh_low;
     uint16_t fan_pwm;
@@ -194,29 +219,10 @@ typedef struct {
 extern PDB_SETTINGS_t pdb_settings;
 extern PDB_RUNTIME_t  pdb_rt;
 
+/**************************** Function Prototypes ******************************/
 void settings_load(void);           /* flash -> pdb_settings (defaults if bad) -> pdb_rt */
 void settings_decode(void);         /* pdb_settings -> pdb_rt, call after changing pdb_settings */
 void settings_reset_defaults(void);
 int  settings_save(void);
 
 #endif
-
-
-/* Generated DBC code
-BO_ 773 PDB_Param_Reveal: 6 PDB
- SG_ Set_Value : 0|32@1+ (1,0) [0|0] "" Vector__XXX
- SG_ ID : 32|16@1+ (1,0) [0|0] "" Vector__XXX
-
-BO_ 774 PDB_Param_Change: 6 Vector__XXX
- SG_ Set_Value : 0|32@1+ (1,0) [0|0] "" PDB
- SG_ ID : 32|15@1+ (1,0) [0|0] "" PDB
- SG_ Write : 47|1@1+ (1,0) [0|0] "" PDB
-
-BO_ 775 PDB_Param_Request: 2 Vector__XXX
- SG_ ID : 0|16@1+ (1,0) [0|0] "" PDB
-
-
-
-
-
-*/

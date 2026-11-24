@@ -75,7 +75,7 @@ typedef enum {
 #define R_SET_OHM       51.0
 #define CUR_MA_TO_DAC_COUNTS(mA) ((DAC_FULL_SCALE / DAC_VREF_V)         \
                                 * (ILIM_VREF_V + R_DAC_OHM              \
-                                * (ILIM_VREF_V / R_ILIM_OHM             \                         
+                                * (ILIM_VREF_V / R_ILIM_OHM             \
                                 - (0.001f * (mA) * R_SENSE_OHM)         \
                                 / (CS_GAIN * R_SET_OHM))))
 
@@ -84,11 +84,31 @@ extern TaskHandle_t lv_charge_task_handle;
 #define LV_CHARGE_DIV       5UL     /* charge voltage / PA6 voltage */
 /* Macro for LV mv */
 #define LV_MV_TO_COUNTS(mv)  (((mv) * ADC_FULL_SCALE) / (LV_CHARGE_DIV * ADC_VREF_MV))
+/******************************* Lamp Check Duration ************************************/
+#define LAMP_CHECK_DURATION_MS 3000U
 
 /**************************** Function PRIO *********************************************/
 #define SHUTDOWN_IRQ_PRIO   6U     /* Shutdown log priority */
 #define LV_CHARGE_PRIO      6U
 
+/**************************** Task PRIO *************************************************/
+/*tskIDLE_PRIORITY*/
+#define CAN1_RX_TASK_PRIORITY       3
+#define CAN2_RX_TASK_PRIORITY       2
+#define LV_CHARGE_TASK_PRIO         3
+#define SHUTDOWN_LOG_TASK_PRIO      4
+#define CURRENT_LOG_TASK_PRIO   6
+#define PDB_CTRL_TASK_PRIO       8
+
+
+#define SLOW_TASK_PRIORITY          1
+
+#define CAN_RX_TASK_STACK           512U
+#define SLOW_TASK_STACK             512U
+#define LV_CHARGE_TASK_STACK        256U        /* words, not bytes */
+#define SHUTDOWN_LOG_TASK_STACK     512U
+#define CURRENT_LOG_TASK_STACK  512U
+#define PDB_CTRL_TASK_STACK      512U
 
 
 

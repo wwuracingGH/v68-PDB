@@ -43,11 +43,18 @@ static uint32_t crc32(const void *p, uint32_t len) {
 
 #define SETTINGS_CRC(s) crc32((s), offsetof(PDB_SETTINGS_t, crc))
 
+/**********************************************************************************
+ * default_settings 
+ *
+ * Function:
+ *      Retrieve a default flash struct for reference.
+ **********************************************************************************/
 static const PDB_SETTINGS_t default_settings = {
     .magic             = SETTINGS_MAGIC,
     .version           = SETTINGS_VERSION,
     .LV_CHARGE_THRESHS = LV_THRESHS(DEFAULT_LV_THRESH_HIGH, DEFAULT_LV_THRESH_LOW),
     .PWM_CONFIG        = PWM_CFG(DEFAULT_PUMP_PWM, DEFAULT_FAN_PWM),
+    .RAIL_LIMITS       = RAIL_LIMITS(DEFAULT_5V_LIMIT, DEFAULT_12V_LIMIT),
     .channel_config.ch = {
         [PDB_CH1_CTRL]    = DEFAULT_CH1_CONFIG,
         [PDB_CH2_CTRL]    = DEFAULT_CH2_CONFIG,
@@ -84,6 +91,7 @@ void settings_reset_defaults(void) {
  * Function:
  *      Copies flash into pdb_settings if magic, version and CRC all check out,
  *      otherwise defaults (blank, corrupt or old layout). Then builds pdb_rt.
+ *      pdb_rt is used during runtime.
  **********************************************************************************/
 void settings_load(void) {
     const PDB_SETTINGS_t *f = (const PDB_SETTINGS_t *)SETTINGS_ADDR;
@@ -101,14 +109,26 @@ void settings_load(void) {
  * Function:
  *      Unpacks pdb_settings into the pdb_rt tables. Call after anything changes
  *      pdb_settings (CAN param write, reset to defaults)
+ *      pdb_rt.limit[] is indexed by PDB_DAC_t: 12V/5V come from RAIL_LIMITS,
+ *      CH1-CH6 from their channel config words. CH7, CH8 and charge have no DAC.
  **********************************************************************************/
+_Static_assert(PDB_DAC_CH6 - PDB_DAC_CH1 == PDB_CH6_CTRL - PDB_CH1_CTRL,
+               "settings_decode maps CH1-CH6 onto PDB_DAC_CH1-CH6 by offset");
+
 void settings_decode(void) {
+    pdb_rt.limit[PDB_DAC_12VOUT] = (uint16_t)((pdb_settings.RAIL_LIMITS & RAIL_12V_Msk) >> RAIL_12V_Pos);
+    pdb_rt.limit[PDB_DAC_5AVOUT] = (uint16_t)((pdb_settings.RAIL_LIMITS & RAIL_5V_Msk)  >> RAIL_5V_Pos);
+    for (uint32_t ch = PDB_CH1_CTRL; ch <= PDB_CH6_CTRL; ch++) {
+        uint32_t c = pdb_settings.channel_config.ch[ch];
+        pdb_rt.limit[PDB_DAC_CH1 + (ch - PDB_CH1_CTRL)] = (uint16_t)((c & CH_CFG_LIMIT_Msk) >> CH_CFG_LIMIT_Pos);
+    }
+
     for (uint32_t i = 0; i < PDB_NUM_CTRL; i++) {
         uint32_t c = pdb_settings.channel_config.ch[i];
-        pdb_rt.limit[i]        = (uint16_t)((c & CH_CFG_LIMIT_Msk) >> CH_CFG_LIMIT_Pos);
         pdb_rt.delay_ms[i]     = (uint16_t)((c & CH_CFG_DELAY_Msk) >> CH_CFG_DELAY_Pos);
         pdb_rt.controllable[i] = (uint8_t)((c & CH_CFG_CTRL)   ? 1U : 0U);
         pdb_rt.logged[i]       = (uint8_t)((c & CH_CFG_LOGGED) ? 1U : 0U);
+        pdb_rt.lamp_check[i]   = (uint8_t)((c & CH_CFG_LAMP_CHECK) ? 1U : 0U);
     }
     pdb_rt.lv_thresh_high = (uint16_t)((pdb_settings.LV_CHARGE_THRESHS & LV_THRESH_HIGH_Msk) >> LV_THRESH_HIGH_Pos);
     pdb_rt.lv_thresh_low  = (uint16_t)((pdb_settings.LV_CHARGE_THRESHS & LV_THRESH_LOW_Msk)  >> LV_THRESH_LOW_Pos);
@@ -171,11 +191,11 @@ int settings_save(void) {
     return rc;
 }
 
-void settings_set(uint16_t id, uint8, uint32_t value) {
-    if (id )
-}
+// void settings_set(uint16_t id, uint8, uint32_t value) {
+//     if (id )
+// }
 
 
-int settings_get(uint16_t id, uint32_t *value) {
+// int settings_get(uint16_t id, uint32_t *value) {
 
-}
+// }

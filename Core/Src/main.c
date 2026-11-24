@@ -40,6 +40,8 @@
 #include "pwm.h"
 #include "shutdown_log.h"
 #include "control.h"
+#include "can.h"
+#include "adc_dma.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -52,10 +54,11 @@ PDB_STATE_t PDB_state;
 void CAN_rxTask(void* params);
 void Channel_Control_Task(void* params);
 void Logging_Task(void* params);
-
-
-#define LV_CHARGE_TASK_PRIO     (tskIDLE_PRIORITY + 3)
-#define LV_CHARGE_TASK_STACK    256U        /* words, not bytes */
+void Shutdown_Log_Task(void* params);
+void Current_Log_Task(void* params);
+void PDB_CTRL_Task(void* params);
+TimerHandle_t lamp_check_timer;
+static void lamp_check_off_cb(TimerHandle_t t) {(void)t; lamp_check_off();}
 
 void main(){
     sys_clk_init();     /* 250 MHz first. HAL_Init sizes the HAL tick from the clocks it sees */
@@ -66,15 +69,52 @@ void main(){
     channel_ctrl_Init();
     logging_gpio_init();
 
-    xTaskCreate(LV_Charge_Task, "lv_charge", LV_CHARGE_TASK_STACK, NULL,
-                LV_CHARGE_TASK_PRIO, &lv_charge_task_handle);
-    /* ... CAN rx tasks, startup task, etc. */
+    xTaskCreate(LV_Charge_Task,
+                "lv_charge",
+                LV_CHARGE_TASK_STACK,
+                NULL,
+                LV_CHARGE_TASK_PRIO,
+                &lv_charge_task_handle);
 
+    xTaskCreate(CAN_rxTask, "can1_rx",
+                CAN_RX_TASK_STACK,
+                (void*)CAN1_BUS,
+                CAN1_RX_TASK_PRIORITY,
+                NULL);
+    xTaskCreate(CAN_rxTask, "can2_rx",
+                CAN_RX_TASK_STACK,
+                (void*)CAN2_BUS,
+                CAN2_RX_TASK_PRIORITY,
+                NULL);
+
+    xTaskCreate(Shutdown_Log_Task, "shutdown_log_task",
+               SHUTDOWN_LOG_TASK_STACK,
+               NULL,
+               SHUTDOWN_LOG_TASK_PRIO,
+               NULL);
+    xTaskCreate(Current_Log_Task, "current_log_task",
+                CURRENT_LOG_TASK_STACK,
+                NULL,
+                CURRENT_LOG_TASK_PRIO,
+                NULL
+                );
+
+    xTaskCreate(PDB_CTRL_Task, "pdb_ctrl_task",
+                PDB_CTRL_TASK_STACK,
+                NULL,
+                PDB_CTRL_TASK_PRIO,
+                NULL);
+    // xTaskCreate(CAN_txTask,"can1_tx");
+    // xTaskCreate(CAN_txTask,"can2_tx");
+    lamp_check_timer = xTimerCreate("lamp_check",
+                                pdMS_TO_TICKS(LAMP_CHECK_DURATION_MS),
+                                pdFALSE,
+                                NULL,
+                                lamp_check_off_cb);
     vTaskStartScheduler();      /* never returns */
-
-    //CAN_busInit();
-
-    
+    for (;;) {
+      // GO!!!!
+    }
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {

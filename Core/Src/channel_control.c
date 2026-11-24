@@ -21,11 +21,13 @@
 #include "FreeRTOS.h"
 #include "channel_control.h"
 #include "flash.h"
+#include "delay.h"
 
 #include "task.h"
 #include "timers.h"
 #include "queue.h"
 #include "semphr.h"
+#include "timers.h"
 /* Control outputs, all active high. Every control net has a 10k pull-down on the board,
  * so everything is off until the MCU drives it high.
  *  CHARGE  -> EN_UVLO of the LM74801 ideal diode on the LV charge path (Ideal_Diode sheet) */
@@ -85,6 +87,7 @@ static const ch_pin_t ctrl_pins[PDB_NUM_CTRL] = {
 #define DAC_DATA_Pos            2U
 #define DAC_DATA_MAX            0x3FFU
 #define DAC_DATA(code)          ((uint16_t)(((code) & DAC_DATA_MAX) << DAC_DATA_Pos))
+#define DAC_DATA_Msk            ((uint16_t)(DAC_DATA_MAX << DAC_DATA_Pos))
 
 /* 7-bit addresses, 1001 + A0 strap. HAL takes them << 1 like the pots */
 #define DAC_ADDR_A0_AGND    0x48U
@@ -109,8 +112,12 @@ static const uint8_t dac_ch_reg[PDB_NUM_DAC] = {
 };
 
 #define I2C_TIMEOUT_MS  10U
+#define DAC_PWRUP_MS    5U      /* DAC53608: wait 5 ms after VDD before I2C */
 
 I2C_HandleTypeDef hi2c1;
+
+static HAL_StatusTypeDef dac_write(uint8_t reg, uint16_t val);
+static HAL_StatusTypeDef dac_read(uint8_t reg, uint16_t *val);
 
 /**********************************************************************************
  * ch_gpio_init
@@ -133,7 +140,15 @@ static void ch_gpio_init(void) {
         port->MODER    = (port->MODER & ~(3U << (2U * pin)))
                        | (1U << (2U * pin));               /* 01 = output */
     }
+    /* LAMP_CHECK_INIT TODO move to a proper place */
+    GPIOC->BSRR     = GPIO_BSRR_BR9;                    /* ODR low first so it never glitches high */
+    GPIOC->OTYPER  &= ~GPIO_OTYPER_OT9;                 /* push-pull */
+    GPIOC->PUPDR   &= ~GPIO_PUPDR_PUPD9;                /* no pull */
+    GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEED9;            /* low speed */
+    GPIOC->MODER    = (GPIOC->MODER & ~GPIO_MODER_MODE9)
+                    | GPIO_MODER_MODE9_0;               /* 01 = output */
 }
+
 
 /**********************************************************************************
  * HAL_I2C_MspInit
@@ -141,16 +156,13 @@ static void ch_gpio_init(void) {
  * Function:
  *      HAL I2C INIT
  **********************************************************************************/
-void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-  if(hi2c->Instance==I2C1)
-  {
-    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2C1;
-    PeriphClkInitStruct.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
-    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-    {
+void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+    if(hi2c->Instance==I2C1) {
+        PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2C1;
+        PeriphClkInitStruct.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
       Error_Handler();
     }
 
@@ -172,8 +184,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
 }
 
 void HAL_I2C_MspDeInit(I2C_HandleTypeDef* hi2c) {
-  if(hi2c->Instance==I2C1)
-  {
+  if(hi2c->Instance==I2C1) {
     /* Peripheral clock disable */
     __HAL_RCC_I2C1_CLK_DISABLE();
 
@@ -186,64 +197,55 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* hi2c) {
   }
 }
 
+/**********************************************************************************
+ * MX_I2C1_Init
+ *
+ * Function:
+ *      Set up the I2C.
+ **********************************************************************************/
 static void MX_I2C1_Init(void) {
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x10707DBC;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    hi2c1.Instance = I2C1;
+    hi2c1.Init.Timing = 0x10707DBC;
+    hi2c1.Init.OwnAddress1 = 0;
+    hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+    hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+    hi2c1.Init.OwnAddress2 = 0;
+    hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+    hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+    hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+    if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+        Error_Handler();
+    }
 
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    /** Configure Analogue filter
+     */
+    if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+        Error_Handler();
+    }
 
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    /** Configure Digital filter
+     */
+    if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK) {
+        Error_Handler();
+    }
 }
 
 /**********************************************************************************
  * channel_ctrl_Init
  *
  * Function:
- *      All channel and charge enables low, I2C1 up, every TPL0102 switched to volatile-only
- *      wiper writes. Wipers are left at their power-up value (EEPROM, factory 0x80)
- *      until current_limit_set() writes them. Needs HAL_Init() first (I2C1 is HAL).
+ *      All channel and charge enables low, I2C1 up, then every eFuse current limit
+ *      loaded into the DAC53608 from pdb_rt. Needs delay_init(), HAL_Init() and
+ *      settings_load() first.
  *
  * Returns:
- *      Bitmask of pots that did not ACK, bit 0 = CH1 ... bit 5 = CH6. 0 = all good
+ *      efuse_cur_ctrl() status, bitmask of DAC outputs that failed. 0 = all good
  **********************************************************************************/
-void channel_ctrl_Init() {
-    uint8_t status = 0;
-    MX_I2C1_Init();
-    ch_gpio_init();
-    ch_cur_ctrl();
-
-
-    return status;
-}
-/**********************************************************************************
- * cur_lim_set
- *
- * Function:
- *      Given a selected channel set its volatile or non-volatile cur limits
- **********************************************************************************/
-uint8_t cur_lim_set(PDB_Channel_t Channel,  uint8_t val, uint8_t volatility) {
-
+uint8_t channel_ctrl_Init(void) {
+    MX_I2C1_Init();             /* Set up I2C */
+    ch_gpio_init();             /* Configure the GPIO for CTRL, all off */
+    delay_ms(DAC_PWRUP_MS);     /* DAC power-up time just in case */
+    return efuse_cur_ctrl();
 }
 
 /**********************************************************************************
@@ -266,9 +268,11 @@ void PDB_STARTUP(void) {
             continue;
         }
         uint32_t j = n++;
+
         while (j > 0U && pdb_rt.delay_ms[order[j - 1U]] > pdb_rt.delay_ms[ch]) {
             order[j] = order[j - 1U];
             j--;
+
         }
         order[j] = (uint8_t)ch;
     }
@@ -279,8 +283,12 @@ void PDB_STARTUP(void) {
             vTaskDelay(due - waited);
             waited = due;
         }
+
         /* TODO: return here if a shutdown/fault happened during the last delay */
         PDB_CHANNEL_CTRL_REQ((PDB_CTRL_t)order[i], 1);
+        if (pdb_rt.lamp_check[order[i]]) {
+            lamp_check_on();
+        }
     }
 }
 
@@ -320,35 +328,37 @@ void PDB_CHANNEL_SHUTDOWN(void) {
  * efuse_cur_ctrl
  *
  * Function:
- *      Load every current limit, then power all 8 DAC outputs up in one write.
+ *      Writes every current limit from pdb_rt.limit[] (DAC codes, indexed by
+ *      PDB_DAC_t) and reads each one back. Outputs that check out are powered up,
+ *      failed ones stay powered down (10k to AGND, same as code 0 = highest limit,
+ *      which is also what a failed write would leave). Call again after a limit
+ *      changes. Blocking I2C: init or a task only, never an ISR.
  *
  * Returns:
- *      Bitmask of outputs that failed bit 0 = PDB_DAC_CH1.
- *      0xFF = power-up write failed. 0 = SUCCESS
- * 
- * 
- * 
- * 
- *  FUCKED
+ *      Bitmask of outputs that failed, bit n = PDB_DAC_t n (bit 0 = 12V, bit 2 = CH1).
+ *      0xFF = DAC not responding. 0 = SUCCESS
  **********************************************************************************/
-uint8_t efuse_cur_ctrl() {
+uint8_t efuse_cur_ctrl(void) {
     uint8_t status = 0;
 
     for (uint32_t i = 0; i < PDB_NUM_DAC; i++) {
-        //uint16_t count = cur_to_count();
-        if (count == 0xFFFFU || dac_write(dac_ch_reg[i], DAC_DATA(code)) != HAL_OK) {
-            status |= (uint8_t)(1U << i);
+        uint16_t desired_cur = DAC_DATA(pdb_rt.limit[i]);
+        uint16_t actual_cur  = 0;
+
+        if (dac_write(dac_ch_reg[i], desired_cur) != HAL_OK ||
+            dac_read(dac_ch_reg[i], &actual_cur)  != HAL_OK) {
+            if ((actual_cur & DAC_DATA_Msk) != desired_cur) {
+                status |= (uint8_t)(1U << i);
+            }
         }
     }
-    /* If any failures exit */
-    if (status != 0U) {
-        return status;
-    }
-    /* Turn them all on */
-    if (dac_write(DAC_CMD_DEVICE_CONFIG, DAC_CFG_ALL_ON) != HAL_OK) {
+
+    /* PDN bit n = 1 keeps VOUTn powered down, PDB_DAC_t n = VOUTn, so status is the mask */
+    if (dac_write(DAC_CMD_DEVICE_CONFIG, (uint16_t)status) != HAL_OK) {
         return 0xFFU;
     }
-    return 0;
+    return status;
+    
 }
 
 /**********************************************************************************
@@ -382,14 +392,35 @@ static HAL_StatusTypeDef dac_read(uint8_t reg, uint16_t *val) {
 }
 
 /**********************************************************************************
- * cur_ma_to_dac_code
+ * lamp_check_on
  *
  * Function:
+ *      Turn on lampcheck and start timer for 3 seconds
  **********************************************************************************/
-static uint16_t cur_to_count(float mA) {
-    float c = CUR_MA_TO_DAC_COUNTS(mA) + 0.5f;     /* round */
-    if (c < 0.0f || c > (float)DAC_DATA_MAX) {
-        return 0xFFFFU;
-    }
-    return (uint16_t)c;
+void lamp_check_on() {
+    GPIOC->BSRR = GPIO_BSRR_BS9;    /* on  */
+    xTimerStart(lamp_check_timer, 0);
 }
+
+/**********************************************************************************
+ * PDB_CHANNEL_CTRL_REQ
+ *
+ * Function:
+ *      Called from lamp_check_off_cb, turns lampcheck off
+ **********************************************************************************/
+void lamp_check_off() {
+    GPIOC->BSRR = GPIO_BSRR_BR9;    /* off */
+}
+
+// /**********************************************************************************
+//  * cur_ma_to_dac_code
+//  *
+//  * Function:
+//  **********************************************************************************/
+// static uint16_t cur_to_count(float mA) {
+//     float c = CUR_MA_TO_DAC_COUNTS(mA) + 0.5f;     /* round */
+//     if (c < 0.0f || c > (float)DAC_DATA_MAX) {
+//         return 0xFFFFU;
+//     }
+//     return (uint16_t)c;
+// }
